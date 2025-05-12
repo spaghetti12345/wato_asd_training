@@ -11,38 +11,61 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # Search for dependencies required for building this package
-find_package(ament_cmake REQUIRED) # ROS2 build tool
-find_package(rclcpp REQUIRED)      # ROS2 C++ package
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
-# Compiles source files into a library
-# A library is not executed, instead other executables can link
-# against it to access defined methods and classes.
-# We build a library so that the methods defined can be used by
-# both the unit test and ROS2 node executables.
+
+# Build the core library
 add_library(map_memory_lib
   src/map_memory_core.cpp)
-# Indicate to compiler where to search for header files
+
+# Include header files for both the library and node
 target_include_directories(map_memory_lib
   PUBLIC include)
-# Add ROS2 dependencies required by package
+
+# Link ROS 2 dependencies to the library
 ament_target_dependencies(map_memory_lib 
   rclcpp
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+
 )
 
-# Create ROS2 node executable from source files
+# Create the main node executable
 add_executable(map_memory_node src/map_memory_node.cpp)
-# Link to the previously built library to access map_memory classes and methods
 target_link_libraries(map_memory_node map_memory_lib)
 
-# Copy executable to installation location
+# Link dependencies to the node
+ament_target_dependencies(map_memory_node
+  rclcpp
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+
+)
+
+# Install targets
 install(TARGETS
   map_memory_node
+  map_memory_lib
   DESTINATION lib/${PROJECT_NAME})
 
-# Copy launch and config files to installation location
+# Install header files
+install(DIRECTORY include/
+  DESTINATION include/
+)
+
+# Install config files (if any)
 install(DIRECTORY
   config
-  DESTINATION share/${PROJECT_NAME})
-
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_package()
