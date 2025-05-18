@@ -1,47 +1,71 @@
 #include "map_memory_node.hpp"
 
-MapMemoryNode::MapMemoryNode() : Node("map_memory_node"), last_x_(0.0), last_y_(0.0) {
-    costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-        "/costmap", 10, std::bind(&MapMemoryNode::costmapCallback, this, std::placeholders::_1));
-    odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "/odom/filtered", 10, std::bind(&MapMemoryNode::odomCallback, this, std::placeholders::_1));
-    map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", 10);
-    timer_ = this->create_wall_timer(
-        std::chrono::seconds(1), std::bind(&MapMemoryNode::updateMap, this));
+MapMemoryNode::MapMemoryNode() : Node("map_memory_node"), robot_position_x_(0), robot_position_y_(0),
+    robot_orientation_theta_(0), previous_position_x_(0), previous_position_y_(0), movement_threshold_(5) {
 
-    map_memory_core_.initializeMap(400, 400, 0.1);  // Example: 40x40 meters map with 0.1m resolution
+    map_memory_ = std::make_shared<MapMemoryCore>();
+
+    local_map_subscription_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+        "/costmap", 10, std::bind(&MapMemoryNode::handleLocalMap, this, std::placeholders::_1));
+
+    odom_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>(
+        "/odom/filtered", 10, std::bind(&MapMemoryNode::handleOdometry, this, std::placeholders::_1));
+
+    global_map_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", 10);
+
+    publish_timer_ = this->create_wall_timer(
+        std::chrono::seconds(1), std::bind(&MapMemoryNode::publishGlobalMap, this));
+
+    geometry_msgs::msg::Pose map_origin;
+
+    map_origin.position.x = -25.0;
+    map_origin.position.y = -25.0;
+    map_origin.orientation.w = 1.0;
+
+    map_memory_->initializeMap(0.25, 300, 300, map_origin);
+
 }
 
-void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
-    latest_costmap_ = *msg;
-    costmap_updated_ = true;
-}
-
-void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    double x = msg->pose.pose.position.x;
-    double y = msg->pose.pose.position.y;
-
-    double dx = x - last_x_;
-    double dy = y - last_y_;
-    double distance = std::sqrt(dx * dx + dy * dy);
-
-    if (distance >= distance_threshold_) {
-        last_x_ = x;
-        last_y_ = y;
-        should_update_map_ = true;
+void MapMemoryNode::handleLocalMap(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+    if (msg->data.empty()) {
+        return;
     }
+
+    double distance_moved = std::hypot(robot_position_x_ - previous_position_x_, 
+                                       robot_position_y_ - previous_position_y_);
+
+    previous_position_x_ = robot_position_x_;
+    previous_position_y_ = robot_position_y_;
+
+    map_memory_->integrateLocalMap(msg, robot_position_x_, robot_position_y_, robot_orientation_theta_);
 }
 
-void MapMemoryNode::updateMap() {
-    if (should_update_map_ && costmap_updated_) {
-        map_memory_core_.integrateCostmap(latest_costmap_, last_x_, last_y_);
-        map_pub_->publish(map_memory_core_.getMap());
-        should_update_map_ = false;
-    }
+void MapMemoryNode::handleOdometry(const nav_msgs::msg::Odometry::SharedPtr msg) {
+    robot_position_x_ = msg->pose.pose.position.x;
+    robot_position_y_ = msg->pose.pose.position.y;
+
+    double qx = msg->pose.pose.orientation.x;
+    double qy = msg->pose.pose.orientation.y;
+    double qz = msg->pose.pose.orientation.z;
+    double qw = msg->pose.pose.orientation.w;
+
+    robot_orientation_theta_ = quaternionToYaw(qx, qy, qz, qw);
 }
 
-int main(int argc, char ** argv)
-{
+void MapMemoryNode::publishGlobalMap() {
+    auto global_map = map_memory_->getGlobalMap();
+    global_map->header.stamp = this->now();
+    global_map->header.frame_id = "sim_world";
+    global_map_publisher_->publish(*global_map);
+}
+
+double MapMemoryNode::quaternionToYaw(double x, double y, double z, double w) {
+    double siny_cosp = 2.0 * (w * z + x * y);
+    double cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+    return std::atan2(siny_cosp, cosy_cosp);
+}
+
+int main(int argc, char ** argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<MapMemoryNode>());
   rclcpp::shutdown();

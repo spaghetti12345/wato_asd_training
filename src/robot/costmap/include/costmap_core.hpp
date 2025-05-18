@@ -17,12 +17,12 @@ class CostmapCore {
 
   private:
     std::vector<std::vector<int>> costmap_; //2D array (costmap)
-    int width_ = 500;
-    int height_ = 500;
-    double resolution_ = 0.1;
-    double origin_x_ = -10.0;
-    double origin_y_ = -10.0;
-    double inflation_radius_ = 3.5;
+    int width_ = 300;
+    int height_ = 300;
+    double resolution_ = 0.25;
+    double origin_x_ = -25.0;
+    double origin_y_ = -25.0;
+    double inflation_radius_ = 1.5;
     int max_cost_ = 100;
 
 };
